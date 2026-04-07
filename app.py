@@ -1,53 +1,167 @@
-import pandas as pd
-import re
-from sklearn.model_selection import train_test_split
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.naive_bayes import MultinomialNB
-from sklearn.metrics import classification_report, accuracy_score
-from nltk.corpus import stopwords
-import nltk
+import streamlit as st
+import time
+from model_utils import SentimentClassifier
+import os
 
-# 1. Preparação e Carga (Amostra de 200k para ser rápido)
-nltk.download('stopwords')
-stop_words = list(stopwords.words('english'))
-
-cols = ['sentiment', 'id', 'date', 'query', 'user', 'text']
-df = pd.read_csv('training.1600000.processed.noemoticon.csv', 
-                 header=None, names=cols, encoding='latin-1')
-
-# Simplificando: apenas texto e alvo (0=Neg, 4=Pos)
-df = df[['sentiment', 'text']].sample(200000, random_state=42)
-df['sentiment'] = df['sentiment'].replace(4, 1) 
-
-# 2. Limpeza Ultrarrápida
-def simple_clean(text):
-    text = text.lower()
-    text = re.sub(r'@[A-Za-z0-9]+|https?://\S+|[^a-zA-Z\s]', '', text)
-    return text
-
-df['text'] = df['text'].apply(simple_clean)
-
-# 3. Divisão dos Dados
-X_train, X_test, y_train, y_test = train_test_split(
-    df['text'], df['sentiment'], test_size=0.2, random_state=42
+# Configuração da página - Dark Tech Theme
+st.set_page_config(
+    page_title="SENTINEL-X | Análise de Sentimento",
+    page_icon="🦾",
+    layout="centered"
 )
 
-# 4. Vetorização (Onde a mágica acontece)
-# Usamos n-grams (1,2) para capturar "not good" como uma unidade
-vectorizer = TfidfVectorizer(stop_words=stop_words, max_features=50000, ngram_range=(1,2))
-X_train_tfidf = vectorizer.fit_transform(X_train)
-X_test_tfidf = vectorizer.transform(X_test)
+# Estilo CSS Cyberpunk / High-Tech
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap');
+    
+    .main {
+        background-color: #0e1117;
+        color: #e0e0e0;
+        font-family: 'JetBrains+Mono', monospace;
+    }
+    .stApp {
+        background: radial-gradient(circle at top, #1e293b 0%, #0f172a 100%);
+    }
+    
+    /* Input Area */
+    .stTextArea textarea {
+        background-color: #1e293b !important;
+        color: #38bdf8 !important;
+        border: 1px solid #334155 !important;
+        border-radius: 8px;
+        font-family: 'JetBrains+Mono', monospace;
+    }
+    
+    /* Button */
+    .stButton button {
+        background-color: #38bdf8 !important;
+        color: #0f172a !important;
+        border: none !important;
+        font-weight: bold !important;
+        width: 100%;
+        transition: 0.3s;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+    }
+    .stButton button:hover {
+        background-color: #7dd3fc !important;
+        box-shadow: 0 0 15px #38bdf8;
+    }
 
-# 5. Treino do Naive Bayes
-model = MultinomialNB()
-model.fit(X_train_tfidf, y_train)
+    /* Cards Glassmorphism */
+    .sentiment-card {
+        padding: 25px;
+        border-radius: 12px;
+        text-align: center;
+        margin: 20px 0;
+        backdrop-filter: blur(10px);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+    }
+    
+    .positive-glow {
+        border-left: 5px solid #22c55e;
+        color: #4ade80;
+    }
+    .negative-glow {
+        border-left: 5px solid #ef4444;
+        color: #f87171;
+    }
+    
+    .tech-title {
+        background: linear-gradient(90deg, #38bdf8, #818cf8);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: 800;
+        font-size: 2.5rem;
+        text-align: center;
+        margin-bottom: 0.5rem;
+    }
+    
+    .tech-subtitle {
+        color: #94a3b8;
+        text-align: center;
+        font-size: 0.9rem;
+        margin-bottom: 2rem;
+    }
 
-# 6. Validação
-y_pred = model.predict(X_test_tfidf)
-print(f"Acurácia: {accuracy_score(y_test, y_pred):.2%}")
-print(classification_report(y_test, y_pred))
+    /* Metric */
+    .metric-container {
+        display: flex;
+        justify-content: space-between;
+        background: #1e293b;
+        padding: 10px 20px;
+        border-radius: 8px;
+        border: 1px solid #334155;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-frase = ["I am having a terrible day, everything is going wrong"]
-frase_vetorizada = vectorizer.transform(frase)
-resultado = model.predict(frase_vetorizada)
-print("Positivo" if resultado[0] == 1 else "Negativo")
+@st.cache_resource
+def load_classifier():
+    """Carrega o modelo apenas uma vez e guarda em cache."""
+    classifier = SentimentClassifier()
+    model_path = 'sentiment_model.joblib'
+    vectorizer_path = 'vectorizer.joblib'
+    
+    if os.path.exists(model_path) and os.path.exists(vectorizer_path):
+        classifier.load(model_path, vectorizer_path)
+        return classifier
+    return None
+
+# Top Bar / Header
+st.markdown('<h1 class="tech-title">SENTINEL-X</h1>', unsafe_allow_html=True)
+st.markdown('<p class="tech-subtitle">SISTEMA AVANÇADO DE CLASSIFICAÇÃO TEXTUAL</p>', unsafe_allow_html=True)
+
+classifier = load_classifier()
+
+if classifier is None:
+    st.error("ERRO DE SISTEMA: ARQUIVOS_MIA_NAO_ENCONTRADOS")
+    st.info("Execute: `python train_model.py` para calibrar o núcleo.")
+else:
+    # Main Interaction
+    st.markdown("### 🧬 ANALISADOR DE ENTRADA")
+    text_input = st.text_area("Insira o fragmento de texto para análise:", placeholder="Aguardando entrada de dados...", height=120)
+    
+    if st.button("EXECUTAR ANÁLISE"):
+        if text_input.strip() == "":
+            st.warning("ERRO: NENHUMA_ENTRADA_DETECTADA")
+        else:
+            with st.spinner('PROCESSANDO VETORES DE DADOS...'):
+                time.sleep(0.8) # Efeito de processamento
+                result = classifier.predict(text_input)
+                
+                sentiment = result['sentiment']
+                confidence = result['confidence']
+                
+                # Exibição do Resultado
+                if sentiment == 'Positivo':
+                    st.markdown(f"""
+                        <div class="sentiment-card positive-glow">
+                            <h2 style="margin:0;">[+] RESPOSTA POSITIVA</h2>
+                            <p style="color: #94a3b8;">Sinais detectados: Otimismo, Satisfação, Aprovação.</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                        <div class="sentiment-card negative-glow">
+                            <h2 style="margin:0;">[-] RESPOSTA NEGATIVA</h2>
+                            <p style="color: #94a3b8;">Sinais detectados: Insatisfação, Reclamação, Pessimismo.</p>
+                        </div>
+                    """, unsafe_allow_html=True)
+                
+                # Metrics Container
+                st.markdown(f"""
+                    <div class="metric-container">
+                        <span style="color: #94a3b8;">PERCENTUAL DE CONFIANÇA:</span>
+                        <span style="color: #38bdf8; font-weight: bold;">{confidence:.2%}</span>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                st.progress(confidence)
+
+# Footer
+st.markdown("<br><br>", unsafe_allow_html=True)
+st.markdown('<p style="text-align: center; color: #475569; font-size: 0.7rem;">VERSÃO DO SISTEMA: 2.1.0-ESTÁVEL | FONTE: DATASET_SENTIMENT140</p>', unsafe_allow_html=True)
